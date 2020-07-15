@@ -445,7 +445,9 @@ def get_maintenances(repo, issues):
         severity = get_severity(labels)
 
         # make sure that non-labeled issues are not displayed
-        if not affected_systems or (severity is None and issue.state != "closed"):
+        if not affected_systems \
+            or (severity is None and issue.state != "closed") \
+            or issue.state == "closed":
             continue
 
         # make sure that the user that created the issue is a collaborator
