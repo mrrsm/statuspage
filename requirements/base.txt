@@ -5,3 +5,5 @@ click==7.0
 tqdm==4.15.0
 requests==2.22.0
 markdown2==2.3.8
+dateutil==2.8.1
+pytz==2020.1

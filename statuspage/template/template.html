@@ -40,6 +40,17 @@
 					{% endfor %}
 				{% endif %}
 
+				{% if maintenances %}
+					<div class="panel maintenance">
+						<span data-l10n-id="Scheduled-Maintenance">Scheduled Maintenance</span> <span data-l10n-id="on">on</span>
+						{% for maintenance in maintenances %}
+						<div>
+							{% for system in maintenance.systems %}{{ system }}{% if not loop.last %}, {% endif %}{% endfor %}: {{ maintenance.title }}.
+						</div>
+						{% endfor %}
+					</div>
+				{% endif %}
+
 				<h4 data-l10n-id="systems">Systems</h4>
 				<ul class="systems">
 					{% for system, data in systems.items() %}

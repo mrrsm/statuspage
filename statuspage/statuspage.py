@@ -5,6 +5,8 @@ import sys, os
 import hashlib
 import base64
 from datetime import datetime, timedelta
+import pytz
+from dateutil.parser import parse
 import requests
 from requests.exceptions import ConnectionError
 from github import Github, UnknownObjectException, GithubException
@@ -22,6 +24,7 @@ ROOT = os.path.dirname(os.path.realpath(__file__))
 PY3 = sys.version_info >= (3, 0)
 
 COLORED_LABELS = (
+    ("1192FD", "maintenance",),
     ("1192FC", "investigating",),
     ("FFA500", "degraded performance"),
     ("FF4D4D", "major outage", )
@@ -183,13 +186,14 @@ def run_update(name, token, org):
 
     systems = get_systems(repo, issues)
     incidents = get_incidents(repo, issues)
+    maintenances = get_maintenances(repo, issues)
     panels = get_panels(systems)
 
     # render the template
     config = get_config(repo)
     template = Template(template_file.decoded_content.decode("utf-8"))
     content = template.render({
-        "systems": systems, "incidents": incidents, "panels": panels, "config": config
+        "systems": systems, "maintenances": maintenances, "incidents": incidents, "panels": panels, "config": config
     })
 
     # create/update the index.html with the template
@@ -369,10 +373,22 @@ def get_systems(repo, issues):
         if issue.state == "open":
             labels = issue.get_labels()
             severity = get_severity(labels)
+
             affected_systems = list(iter_systems(labels))
             # shit is hitting the fan RIGHT NOW. Mark all affected systems
             for affected_system in affected_systems:
-                systems[affected_system]["status"] = severity
+                if severity == "maintenance":
+                    dates = issue.title.split(" - ")
+
+                    start = parse(dates[0])
+                    end = parse(dates[1])
+
+                    now = parse(str(datetime.now(pytz.utc)))
+
+                    if (now >= start and now < end):
+                        systems[affected_system]["status"] = severity
+                else:
+                    systems[affected_system]["status"] = severity
     return systems
 
 
@@ -386,7 +402,9 @@ def get_incidents(repo, issues):
         severity = get_severity(labels)
 
         # make sure that non-labeled issues are not displayed
-        if not affected_systems or (severity is None and issue.state != "closed"):
+        if not affected_systems \
+            or (severity is None and issue.state != "closed") \
+            or severity == "maintenance":
             continue
 
         # make sure that the user that created the issue is a collaborator
@@ -417,6 +435,46 @@ def get_incidents(repo, issues):
     # sort incidents by date
     return sorted(incidents, key=lambda i: i["created"], reverse=True)
 
+def get_maintenances(repo, issues):
+    # loop over all issues in the past 90 days to get current and past incidents
+    maintenances = []
+    collaborators = get_collaborators(repo=repo)
+    for issue in issues:
+        labels = issue.get_labels()
+        affected_systems = sorted(iter_systems(labels))
+        severity = get_severity(labels)
+
+        # make sure that non-labeled issues are not displayed
+        if not affected_systems or (severity is None and issue.state != "closed"):
+            continue
+
+        # make sure that the user that created the issue is a collaborator
+        if issue.user.login not in collaborators:
+            continue
+
+        # create a maintenance
+        maintenance = {
+            "created": issue.created_at,
+            "title": issue.title,
+            "systems": affected_systems,
+            "severity": severity,
+            "closed": issue.state == "closed",
+            "body": markdown2.markdown(issue.body),
+            "updates": []
+        }
+
+        for comment in issue.get_comments():
+            # add comments by collaborators only
+            if comment.user.login in collaborators:
+                maintenance["updates"].append({
+                    "created": comment.created_at,
+                    "body": markdown2.markdown(comment.body)
+                })
+
+        maintenances.append(maintenance)
+
+    # sort incidents by date
+    return sorted(maintenances, key=lambda i: i["created"], reverse=True)
 
 def get_issues(repo):
     return repo.get_issues(state="all", since=datetime.now() - timedelta(days=90))
